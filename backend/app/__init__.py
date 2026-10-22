@@ -1,0 +1,1 @@
+"""VGRS backend application."""

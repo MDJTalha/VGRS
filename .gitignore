@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.pytest_cache/
+.coverage
+*.wav
+*.mp3
+*.flac
+*.m4a
+.DS_Store
+*.tsbuildinfo
