@@ -4,7 +4,7 @@ A local-first browser application for audio validation and acoustic measurements
 
 ## Start directly on Windows
 
-Prerequisites: Python 3.11, Node.js 22+ (Node 24 has been tested), and optional FFmpeg for codecs not supported by the installed SoundFile/libsndfile build.
+Prerequisites: Python 3.11, Node.js 22+ (Node 24 has been tested). The backend requirements include `imageio-ffmpeg`, which supplies a bundled FFmpeg executable on supported platforms. Install standalone FFmpeg and add it to `PATH` only if the bundled binary is unavailable on your platform.
 
 1. Open PowerShell and run `cd C:\Projects\VGRS`.
 2. Copy `.env.example` to `.env` if you need to change API settings. The defaults are suitable for local development.
@@ -27,7 +27,7 @@ For a convenience startup script, run `powershell -ExecutionPolicy Bypass -File 
 
 Requests without consent are rejected. Defaults: 25 MB per file, 2–120 seconds and source sample rates 8–96 kHz. Unsupported extensions return HTTP 415; silent, malformed and too-short decoded recordings return HTTP 422; excess upload size returns HTTP 413. Batch reports retain file-specific status when individual inputs fail.
 
-Supported extensions include WAV, FLAC, OGG, AIFF, MP3, M4A and WebM, subject to codec availability. SoundFile/librosa-independent baseline processing handles PCM through SoundFile; FFmpeg is used locally as a fallback for additional codecs.
+Supported extensions include WAV, FLAC, OGG, AIFF, MP3, M4A and WebM, subject to codec availability. SoundFile/libsndfile handles supported formats first; FFmpeg is used as a fallback for additional codecs. The backend requirements install the `imageio-ffmpeg` package, which provides a bundled FFmpeg executable on supported platforms. Uploaded media is passed to the decoder through stdin and decoded audio is received through stdout; the original upload is not saved as a project file. If the bundled executable is unavailable, install FFmpeg separately and ensure it is available on `PATH`.
 
 ## Implemented acoustic measurements
 
@@ -72,7 +72,7 @@ From the repository root:
 - `npm run build`
 - `npm audit --audit-level=moderate`
 
-The latest local verification passed 11 backend tests, two evaluation-tool tests, three frontend tests, a TypeScript/Vite production build, a zero-vulnerability npm audit and a current-source consent/API smoke test. A synthetic pure-tone fixture validates a code path only; it does not establish natural-speech performance. See `docs/evaluation-report.md` for current verification boundaries.
+The latest local verification before the codec-support change passed 11 backend tests, two evaluation-tool tests, three frontend tests, a TypeScript/Vite production build, a zero-vulnerability npm audit and a current-source consent/API smoke test. New FFmpeg fallback tests run in GitHub Actions after this change; see the workflow before treating the newest code as verified. A synthetic pure-tone fixture validates a code path only; it does not establish natural-speech performance. See `docs/evaluation-report.md` for current verification boundaries.
 
 ## Documentation map
 
