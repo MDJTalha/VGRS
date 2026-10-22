@@ -150,3 +150,61 @@ def test_validation_report_rejects_boolean_metrics_and_expired_evidence(tmp_path
 
     path.write_text(json.dumps({**base, "evaluation_date": "2000-01-01"}), encoding="utf-8")
     assert _read_validation_report() is None
+
+
+def _valid_age_calibration(model_version):
+    return {
+        "approved_for_research": True,
+        "model_version": model_version,
+        "slope": 1.1,
+        "intercept": 15.0,
+        "train_speaker_count": 50,
+        "test_speaker_count": 20,
+        "baseline_test_mae_years": 10.0,
+        "calibrated_test_mae_years": 8.0,
+        "baseline_test_age_group_accuracy": 0.6,
+        "calibrated_test_age_group_accuracy": 0.6,
+    }
+
+
+def test_research_age_calibration_only_loads_approved_matching_evaluated_candidate(tmp_path):
+    from app.classifier import AudEERINGResearchAdapter, ClassifierConfigurationError
+
+    adapter = AudEERINGResearchAdapter.__new__(AudEERINGResearchAdapter)
+    adapter.model_version = "audeering-wav2vec2-age-gender-6-layer-research"
+    candidate = tmp_path / "candidate.json"
+    candidate.write_text(json.dumps({**_valid_age_calibration(adapter.model_version), "approved_for_research": False}), encoding="utf-8")
+    with pytest.raises(ClassifierConfigurationError, match="set approved_for_research=true"):
+        adapter._load_age_calibration(candidate)
+
+    candidate.write_text(json.dumps({**_valid_age_calibration("wrong-model")}), encoding="utf-8")
+    with pytest.raises(ClassifierConfigurationError, match="does not match"):
+        adapter._load_age_calibration(candidate)
+
+    candidate.write_text(json.dumps(_valid_age_calibration(adapter.model_version)), encoding="utf-8")
+    loaded = adapter._load_age_calibration(candidate)
+    assert loaded["slope"] == 1.1
+    assert loaded["test_speaker_count"] == 20
+
+
+def test_research_age_calibration_changes_adult_age_band_but_never_claims_confidence():
+    adapter = AudEERINGResearchAdapter.__new__(AudEERINGResearchAdapter)
+    adapter._model = FakeResearchModel(age=0.32, gender=(0.2, 1.3, -0.4))
+    adapter._age_calibration = _valid_age_calibration(adapter.model_version)
+    result = adapter.predict(np.zeros(16000 * 3, dtype=np.float32), 16000)
+
+    assert result["age_group"] == "45–59"
+    assert result["estimated_age_years"] == 50.2
+    assert result["calibration_applied"] is True
+    assert "confidence" not in result
+
+
+def test_research_adult_calibration_is_not_applied_to_under_18_raw_estimate():
+    adapter = AudEERINGResearchAdapter.__new__(AudEERINGResearchAdapter)
+    adapter._model = FakeResearchModel(age=0.15, gender=(0.2, 1.3, -0.4))
+    adapter._age_calibration = _valid_age_calibration(adapter.model_version)
+    result = adapter.predict(np.zeros(16000 * 3, dtype=np.float32), 16000)
+
+    assert result["age_group"] == "13–17"
+    assert result["estimated_age_years"] == 15.0
+    assert result["calibration_applied"] is False

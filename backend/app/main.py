@@ -4,10 +4,14 @@ import asyncio
 from contextlib import asynccontextmanager
 import hmac
 import ipaddress
+import json
 import logging
 import os
+import re
+import shutil
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +50,34 @@ PROXY_SHARED_SECRET = os.getenv("VGRS_PROXY_SHARED_SECRET", "")
 BODY_OVERHEAD_BYTES = 1024 * 1024
 ANALYSIS_SEMAPHORE = asyncio.Semaphore(MAX_CONCURRENT_ANALYSES)
 logger = logging.getLogger("vgrs.api")
+
+# Training/research collection is disabled by default and deliberately unavailable
+# in production. Ordinary analysis never persists uploaded audio.
+_DEFAULT_RESEARCH_DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "research-contributions"
+_RESEARCH_DATA_DIR_SETTING = os.getenv("VGRS_RESEARCH_DATA_DIR", "").strip()
+RESEARCH_DATA_DIR = Path(_RESEARCH_DATA_DIR_SETTING or _DEFAULT_RESEARCH_DATA_DIR).expanduser()
+
+
+def _research_contributions_enabled() -> bool:
+    return (
+        ENVIRONMENT != "production"
+        and os.getenv("VGRS_ENABLE_RESEARCH_CONTRIBUTIONS", "").strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
+
+
+def _age_band(age_years: float) -> str:
+    if age_years < 13:
+        return "Under 13"
+    if age_years < 18:
+        return "13–17"
+    if age_years < 30:
+        return "18–29"
+    if age_years < 45:
+        return "30–44"
+    if age_years < 60:
+        return "45–59"
+    return "60+"
 
 
 class AnalysisResponse(BaseModel):
@@ -90,7 +122,7 @@ class RequestGuardMiddleware:
             return
 
         path = scope.get("path", "")
-        if path == "/api/v1/analyze":
+        if path in {"/api/v1/analyze", "/api/v1/research/contributions"}:
             body_limit = MAX_UPLOAD_BYTES + BODY_OVERHEAD_BYTES
         elif path == "/api/v1/analyze/batch":
             body_limit = MAX_BATCH_BYTES + BODY_OVERHEAD_BYTES
@@ -280,7 +312,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=ORIGINS,
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type", "Accept", "X-Request-ID"],
 )
 
@@ -413,6 +445,117 @@ def models() -> dict[str, Any]:
         "limitations": ["Feature extraction only; not a demographic classifier."],
     }
     return {"models": [acoustic_model, classifier_runtime.metadata()]}
+
+
+@app.post("/api/v1/research/contributions", status_code=201)
+async def create_research_contribution(
+    file: UploadFile = File(...),
+    consent_to_research: bool = Form(...),
+    actual_age_years: int = Form(..., ge=18, le=110),
+    participant_code: str = Form(default=""),
+) -> dict[str, Any]:
+    """Explicitly retain an adult recording for local research; never active in production."""
+    if not _research_contributions_enabled():
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "research_contributions_disabled", "message": "Research contributions are disabled. Enable them explicitly in a local development environment."},
+        )
+    if not consent_to_research:
+        await file.close()
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "research_consent_required", "message": "Separate consent to retain this recording for research is required."},
+        )
+
+    code = participant_code.strip()
+    if code and not re.fullmatch(r"[A-Za-z0-9_-]{4,40}", code):
+        await file.close()
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_participant_code", "message": "Use a 4–40 character pseudonymous participant code containing only letters, digits, underscores or hyphens. Do not use a name or email."},
+        )
+
+    filename = (file.filename or "upload").replace("\\", "/").split("/")[-1] or "upload"
+    ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext not in ALLOWED_EXTENSIONS:
+        await file.close()
+        raise HTTPException(status_code=415, detail={"code": "unsupported_format", "message": "Unsupported audio extension."})
+
+    try:
+        payload = await file.read(MAX_UPLOAD_BYTES + 1)
+    finally:
+        await file.close()
+    if len(payload) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail={"code": "upload_too_large", "message": "Research recording exceeds the configured per-file upload limit."})
+
+    # Validate the file and run the currently configured model before retaining a copy.
+    analysis = await _run_analysis(payload, filename)
+    if not analysis.model_info.get("model_enabled") or not analysis.age_group.get("label"):
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "classifier_unavailable", "message": "A loaded age-group model is required to contribute a labeled evaluation example."},
+        )
+
+    contribution_id = str(uuid.uuid4())
+    contribution_dir = RESEARCH_DATA_DIR / contribution_id
+    audio_name = "recording" + ext
+    metadata = {
+        "schema_version": 1,
+        "contribution_id": contribution_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "speaker_id": code or contribution_id,
+        "participant_code_provided": bool(code),
+        "label_source": "self_reported",
+        "consent_to_research": True,
+        "consent_text_version": "v1",
+        "actual_age_years": int(actual_age_years),
+        "actual_age_group": _age_band(float(actual_age_years)),
+        "predicted_age_group": analysis.age_group.get("label"),
+        "predicted_age_years": analysis.age_group.get("estimated_age_years"),
+        "predicted_vocal_presentation": analysis.vocal_presentation.get("label"),
+        "model_version": analysis.age_group.get("model_version"),
+        "audio_file": audio_name,
+        "audio_quality_status": analysis.audio_quality.get("status"),
+        "purpose": "offline_research_evaluation_only",
+    }
+
+    try:
+        contribution_dir.mkdir(parents=True, exist_ok=False)
+        # These files live under an ignored local data folder; never include audio
+        # in logs, API responses, source control or automatic model updates.
+        (contribution_dir / audio_name).write_bytes(payload)
+        metadata_path = contribution_dir / "metadata.json"
+        temporary_metadata = contribution_dir / "metadata.json.tmp"
+        temporary_metadata.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        temporary_metadata.replace(metadata_path)
+    except OSError as exc:
+        shutil.rmtree(contribution_dir, ignore_errors=True)
+        logger.error("Research contribution write failed (type=%s)", type(exc).__name__)
+        raise HTTPException(status_code=500, detail={"code": "research_storage_failed", "message": "The research contribution could not be stored."}) from exc
+
+    return {
+        "contribution_id": contribution_id,
+        "stored": True,
+        "model_updated": False,
+        "model_version": metadata["model_version"],
+        "note": "Stored for offline evaluation only. This recording will not change the model automatically. You can delete this contribution using the returned ID.",
+    }
+
+
+@app.delete("/api/v1/research/contributions/{contribution_id}", status_code=204)
+def delete_research_contribution(contribution_id: str) -> None:
+    """Delete one locally stored research contribution by its unguessable ID."""
+    if not _research_contributions_enabled():
+        raise HTTPException(status_code=404, detail={"code": "research_contributions_disabled", "message": "Research contributions are disabled."})
+    try:
+        normalized_id = str(uuid.UUID(contribution_id))
+    except (ValueError, AttributeError) as exc:
+        raise HTTPException(status_code=404, detail={"code": "contribution_not_found", "message": "Research contribution not found."}) from exc
+    contribution_dir = RESEARCH_DATA_DIR / normalized_id
+    if not contribution_dir.is_dir():
+        raise HTTPException(status_code=404, detail={"code": "contribution_not_found", "message": "Research contribution not found."})
+    shutil.rmtree(contribution_dir)
+    return None
 
 
 @app.post("/api/v1/analyze", response_model=AnalysisResponse)

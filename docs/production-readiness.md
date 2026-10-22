@@ -29,6 +29,16 @@ For optional non-commercial research only:
 
 The audEERING public weights are licensed CC BY-NC-SA 4.0 for non-commercial use; the publisher states a separate license is needed for commercial use. The publisher also describes the open model as English-only and less robust than its commercial models. Do not use this adapter in a commercial deployment.
 
+## Controlled continuous-improvement research workflow
+
+The repository includes an opt-in local research contribution panel, a contribution evaluator, and a speaker-separated age-calibration candidate workflow. See `docs/continuous-improvement.md` for the complete steps.
+
+- `VGRS_ENABLE_RESEARCH_CONTRIBUTIONS` defaults off and the contribution endpoints are unavailable in production, even when the environment variable is set.
+- The endpoint stores a copy of the selected adult speaker recording and self-reported age only after separate explicit consent. Raw audio storage is not encrypted by the application and must remain on a controlled local research host.
+- Ordinary analysis still does not intentionally persist uploaded audio. Contributions are not automatically used to update or train a model.
+- The calibration tool requires a minimum number of pseudonymous speakers, splits at speaker level, evaluates on held-out speakers, and writes an unapproved candidate. Activation is a separate manual research-only action. The research adapter refuses candidates without approval, matching model version, sufficient held-out data and measured improvement gates.
+- This flow is not production validation. Self-reported labels and volunteer samples can be noisy and biased; the research weights remain non-commercial only. No calibration candidate may bypass commercial licensing or the production acceptance gates below.
+
 ## Production classifier contract
 
 Production must use a separately reviewed classifier plugin. The host imports the configured factory using `VGRS_CLASSIFIER_PLUGIN=python.module:create_classifier`. The factory must return an object with:

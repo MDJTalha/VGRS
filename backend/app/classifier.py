@@ -70,6 +70,58 @@ class AudEERINGResearchAdapter:
             raise ClassifierConfigurationError(
                 "The configured research model could not be loaded. Verify the ONNX model directory."
             ) from exc
+        self._age_calibration: dict[str, Any] | None = None
+        calibration_path = os.getenv("VGRS_RESEARCH_AGE_CALIBRATION", "").strip()
+        if calibration_path:
+            self._age_calibration = self._load_age_calibration(Path(calibration_path).expanduser())
+
+    def _load_age_calibration(self, path: Path) -> dict[str, Any]:
+        """Load only a manually approved, held-out-tested research calibration."""
+        try:
+            report = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ClassifierConfigurationError(
+                "Configured research age calibration could not be read as valid JSON."
+            ) from exc
+        if not isinstance(report, dict) or report.get("approved_for_research") is not True:
+            raise ClassifierConfigurationError(
+                "Research age calibration is a candidate only. Review it and set approved_for_research=true before enabling."
+            )
+        if report.get("model_version") != self.model_version:
+            raise ClassifierConfigurationError(
+                "Research age calibration model_version does not match the loaded classifier."
+            )
+        try:
+            slope = float(report["slope"])
+            intercept = float(report["intercept"])
+            train_speakers = int(report["train_speaker_count"])
+            test_speakers = int(report["test_speaker_count"])
+            baseline_mae = float(report["baseline_test_mae_years"])
+            calibrated_mae = float(report["calibrated_test_mae_years"])
+            baseline_accuracy = float(report["baseline_test_age_group_accuracy"])
+            calibrated_accuracy = float(report["calibrated_test_age_group_accuracy"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ClassifierConfigurationError(
+                "Research age calibration is missing valid held-out evaluation metrics."
+            ) from exc
+        numeric = (slope, intercept, baseline_mae, calibrated_mae, baseline_accuracy, calibrated_accuracy)
+        if not np.isfinite(numeric).all() or not (0.25 <= slope <= 2.0) or not (-40.0 <= intercept <= 40.0):
+            raise ClassifierConfigurationError("Research age calibration parameters are outside safe bounds.")
+        if train_speakers < 20 or test_speakers < 10:
+            raise ClassifierConfigurationError(
+                "Research age calibration needs at least 20 calibration speakers and 10 held-out test speakers."
+            )
+        if baseline_mae - calibrated_mae < 0.5 or calibrated_accuracy < baseline_accuracy - 0.02:
+            raise ClassifierConfigurationError(
+                "Research age calibration did not meet the held-out improvement gate."
+            )
+        return {
+            **report,
+            "slope": slope,
+            "intercept": intercept,
+            "baseline_test_mae_years": baseline_mae,
+            "calibrated_test_mae_years": calibrated_mae,
+        }
 
     def predict(self, waveform: np.ndarray, sample_rate: int) -> Mapping[str, Any]:
         signal = np.asarray(waveform, dtype=np.float32).reshape(-1)
@@ -88,6 +140,19 @@ class AudEERINGResearchAdapter:
         # The published model emits a normalized age estimate in approximately [0, 1].
         if not 0.0 <= age_scalar <= 1.0:
             raise ValueError("The configured audEERING model age output is outside the documented range.")
+        raw_estimated_age_years = age_scalar * 100.0
+        estimated_age_years = raw_estimated_age_years
+        calibration_applied = False
+        # Calibration is fitted on consenting adults only. Avoid applying it to
+        # model outputs below 18, where it could worsen predictions for minors.
+        if getattr(self, "_age_calibration", None) is not None and raw_estimated_age_years >= 18.0:
+            estimated_age_years = float(np.clip(
+                self._age_calibration["slope"] * raw_estimated_age_years
+                + self._age_calibration["intercept"],
+                18.0,
+                100.0,
+            ))
+            calibration_applied = True
         # Published order: female, male, child. A child prediction is not turned into a
         # female/male label because those classes are not interchangeable.
         class_index = int(np.argmax(gender_logits))
@@ -99,7 +164,9 @@ class AudEERINGResearchAdapter:
         else:
             presentation = None
         return {
-            "age_group": _age_group(age_scalar * 100.0),
+            "age_group": _age_group(estimated_age_years),
+            "estimated_age_years": round(estimated_age_years, 2),
+            "calibration_applied": calibration_applied,
             "vocal_presentation": presentation,
             "model_version": self.model_version,
             "status": "experimental",
@@ -263,6 +330,19 @@ class ClassifierRuntime:
                 "license": "CC BY-NC-SA 4.0 — non-commercial only",
                 "accuracy_established": False,
                 "production_approved": False,
+                "age_calibration": (
+                    {
+                        "status": "active",
+                        "method": "affine",
+                        "held_out_mae_improvement_years": round(
+                            self.adapter._age_calibration["baseline_test_mae_years"]
+                            - self.adapter._age_calibration["calibrated_test_mae_years"], 3
+                        ),
+                        "scope": "adult-range outputs only",
+                    }
+                    if getattr(self.adapter, "_age_calibration", None)
+                    else {"status": "not_configured"}
+                ),
                 "limitations": RESEARCH_LIMITATIONS,
             }
         report = self.validation_report or {}
@@ -308,6 +388,9 @@ class ClassifierRuntime:
             "model_version": expected_version,
             "scores": None,
         }
+        if isinstance(raw.get("estimated_age_years"), (int, float)) and np.isfinite(raw["estimated_age_years"]):
+            common["estimated_age_years"] = float(raw["estimated_age_years"])
+            common["calibration_applied"] = bool(raw.get("calibration_applied", False))
         return {
             "age_group": {
                 **common, "status": "abstained" if age_group is None else status, "label": age_group,
