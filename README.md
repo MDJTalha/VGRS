@@ -79,7 +79,7 @@ Then run:
 - `cd frontend; npm test`
 - `npm run build`
 - `npm audit --audit-level=moderate`
-- `pip-audit -r backend\requirements-dev.txt`
+- `pip-audit -r backend\requirements-dev.txt -r ml/evaluation/requirements.txt`
 
 The backend runtime requirements exclude pytest and HTTP test-client tooling; the separate dev requirements install the patched pytest/httpx2 test stack. Reproduce checks on the exact commit you deploy using these commands and the GitHub Actions workflow. Tests cover generated tones, API consent and size/duration boundaries, FFmpeg fallback, classifier abstention and fail-closed production gates. Synthetic fixtures do not establish natural-speech or demographic-classifier performance. No real VGRS age/presentation classifier accuracy is claimed; see `docs/evaluation-report.md` and `docs/production-readiness.md` for acceptance limits.
 
