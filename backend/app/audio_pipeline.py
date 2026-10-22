@@ -44,7 +44,7 @@ def _decode(payload: bytes, filename: str) -> tuple[np.ndarray, int, int]:
         try:
             proc = subprocess.run(
                 [_ffmpeg_executable(), "-nostdin", "-hide_banner", "-loglevel", "error", "-i", "pipe:0",
-                 "-f", "wav", "-acodec", "pcm_f32le", "pipe:1"],
+                 "-t", str(max_duration + 0.25), "-threads", "1", "-f", "wav", "-acodec", "pcm_f32le", "pipe:1"],
                 input=payload, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=25, check=True,
             )
             samples, sr = sf.read(BytesIO(proc.stdout), dtype="float32", always_2d=True)
