@@ -53,12 +53,9 @@ logger = logging.getLogger("vgrs.api")
 
 # Training/research collection is disabled by default and deliberately unavailable
 # in production. Ordinary analysis never persists uploaded audio.
-RESEARCH_DATA_DIR = Path(
-    os.getenv(
-        "VGRS_RESEARCH_DATA_DIR",
-        str(Path(__file__).resolve().parents[2] / "data" / "research-contributions"),
-    )
-).expanduser()
+_DEFAULT_RESEARCH_DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "research-contributions"
+_RESEARCH_DATA_DIR_SETTING = os.getenv("VGRS_RESEARCH_DATA_DIR", "").strip()
+RESEARCH_DATA_DIR = Path(_RESEARCH_DATA_DIR_SETTING or _DEFAULT_RESEARCH_DATA_DIR).expanduser()
 
 
 def _research_contributions_enabled() -> bool:
