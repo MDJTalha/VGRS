@@ -23,3 +23,8 @@ models/
 *.pt
 *.pth
 *.zip
+
+# Explicitly opted-in local research contributions and generated evaluation artifacts.
+# Never commit contributed voice recordings or subject-level age labels.
+data/research-contributions/
+reports/research-improvement/
