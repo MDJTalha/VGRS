@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 import logging
 import os
 import time
@@ -177,10 +178,22 @@ def validate_production_configuration() -> None:
         raise RuntimeError("Production startup blocked: configure and confirm rate limiting at the authenticated reverse proxy.")
 
 
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    validate_production_configuration()
+    try:
+        classifier_runtime.configure()
+    except ClassifierConfigurationError as exc:
+        logger.error("Classifier configuration error: %s", str(exc))
+        raise RuntimeError(str(exc)) from exc
+    yield
+
+
 app = FastAPI(
     title="VGRS — Voice Analysis API",
     version=APP_VERSION,
     description="Acoustic analysis and gated model inference. Voice outputs are estimates, not verified identity or age.",
+    lifespan=lifespan,
 )
 app.add_middleware(RequestGuardMiddleware)
 if TRUSTED_HOSTS:
@@ -192,16 +205,6 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "Accept", "X-Request-ID"],
 )
-
-
-@app.on_event("startup")
-async def startup_checks() -> None:
-    validate_production_configuration()
-    try:
-        classifier_runtime.configure()
-    except ClassifierConfigurationError as exc:
-        logger.error("Classifier configuration error: %s", str(exc))
-        raise RuntimeError(str(exc)) from exc
 
 
 def _not_configured_prediction(note: str) -> dict[str, Any]:
