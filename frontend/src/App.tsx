@@ -261,7 +261,7 @@ export default function App() {
               <div className="consent-box"><div className="consent-title"><LockKeyhole size={16}/><b>Consent & data handling</b></div><label className="consent-option"><input type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)}/><span>I have permission to submit this recording and consent to temporary analysis by the configured VGRS API.</span></label><p>Recordings are not intentionally saved in persistent VGRS history or used for model training. Multipart processing may use temporary OS storage.</p></div>
               <button className="button button-primary action-button" disabled={!selectedFile || !consent || busy} onClick={analyzeOne}>{busy ? <LoaderCircle className="spin" size={17}/> : <Sparkles size={17}/>} {busy ? "Analyzing recording…" : "Run acoustic analysis"} {!busy && <ArrowRight size={17}/>}</button><div className="panel-hint"><ShieldCheck size={14}/> Processed by the configured API endpoint.</div>
             </div>
-            <div className="panel report-panel"><PanelHeading step="02" title="Analysis report" subtitle="Measured acoustic features and model availability." meta={result ? "COMPLETE" : "AWAITING INPUT"}/>{result ? <><ReportSummary result={result} onDetails={() => document.getElementById("feature-details")?.scrollIntoView({ behavior: "smooth" })}/>{selectedFile && <ResearchContributionPanel file={selectedFile} modelVersion={result.age_group.model_version} predictedAgeGroup={result.age_group.label}/>}</> : <EmptyReport busy={busy} onNotes={() => setShowResearchNotes(true)}/>}</div>
+            <div className="panel report-panel"><PanelHeading step="02" title="Analysis report" subtitle="Measured acoustic features and model availability." meta={result ? "COMPLETE" : "AWAITING INPUT"}/>{result ? <><ReportSummary result={result} onDetails={() => document.getElementById("feature-details")?.scrollIntoView({ behavior: "smooth" })}/>{selectedFile && <ResearchContributionPanel enabled={Boolean(models?.research_contributions_enabled)} file={selectedFile} modelVersion={result.age_group.model_version} predictedAgeGroup={result.age_group.label}/>}</> : <EmptyReport busy={busy} onNotes={() => setShowResearchNotes(true)}/>}</div>
           </section>
           {result && <section className="panel features-panel" id="feature-details"><SectionHeading title="Acoustic feature breakdown" subtitle="Measurements returned by the audio pipeline; unavailable fields are not estimated." action={<span className={"quality-tag " + (result.audio_quality.status === "acceptable" ? "good" : "warn")}>{result.audio_quality.status.replace(/_/g, " ")}</span>}/>
             {result.audio_quality.warnings.length > 0 && <div className="quality-notes"><b><AlertCircle size={15}/> Recording quality notes</b>{result.audio_quality.warnings.map(warning => <p key={warning}>{warning}</p>)}</div>}
@@ -350,7 +350,8 @@ function PrivacyItem({ good, title, text }: { good?: boolean; title: string; tex
 }
 
 
-function ResearchContributionPanel({ file, modelVersion, predictedAgeGroup }: {
+function ResearchContributionPanel({ enabled, file, modelVersion, predictedAgeGroup }: {
+  enabled: boolean;
   file: File;
   modelVersion: string | null;
   predictedAgeGroup: string | null;
@@ -413,13 +414,14 @@ function ResearchContributionPanel({ file, modelVersion, predictedAgeGroup }: {
     <p className="research-contribution-copy">With explicit consent, VGRS can keep a copy of this recording and a self-reported adult age label on the configured API server for offline model evaluation. It does not change predictions automatically. Only contribute to a server you control and never submit a child's recording.</p>
     {message && <div className="research-message"><CheckCircle2 size={15}/><span>{message}{contributionId && <small>Contribution ID: <code>{contributionId}</code></small>}</span></div>}
     {error && <div className="research-error"><AlertCircle size={15}/><span>{error}</span></div>}
-    {!contributionId && <div className="research-contribution-form">
+    {!enabled && <div className="research-disabled-note"><AlertCircle size={15}/><span>Research collection is disabled. It is off by default; enable it explicitly only in a local development environment you control.</span></div>}
+    {enabled && !contributionId && <div className="research-contribution-form">
       <label className="research-field"><span>Adult speaker's actual age</span><input type="number" min="18" max="110" step="1" value={actualAge} onChange={event => setActualAge(event.target.value)} placeholder="18–110" disabled={busy}/></label>
       <label className="research-field"><span>Anonymous participant code (optional)</span><input type="text" maxLength={40} value={participantCode} onChange={event => setParticipantCode(event.target.value)} placeholder="e.g. SPEAKER_04" disabled={busy}/><small>Use the same non-identifying code for this speaker's recordings. Never enter a name or email.</small></label>
       <label className="research-consent"><input type="checkbox" checked={consentToResearch} onChange={event => setConsentToResearch(event.target.checked)} disabled={busy}/><span>I have permission to retain this adult speaker's recording and self-reported age for research evaluation. I understand this stores a copy on the configured API server and does not instantly train or change the model.</span></label>
       <button className="button button-outline research-submit" disabled={!consentToResearch || !actualAge || busy} onClick={contribute}>{busy ? <LoaderCircle size={15} className="spin"/> : <UploadCloud size={15}/>} {busy ? "Saving contribution…" : "Contribute for research"}</button>
       {modelVersion && <small className="research-model-version">Associated classifier: {modelVersion} · Current predicted band: {predictedAgeGroup || "unavailable"}</small>}
     </div>}
-    {contributionId && <button className="button button-quiet research-delete" disabled={deleting} onClick={removeContribution}>{deleting ? <LoaderCircle size={15} className="spin"/> : <X size={15}/>} {deleting ? "Deleting…" : "Delete my contribution"}</button>}
+    {enabled && contributionId && <button className="button button-quiet research-delete" disabled={deleting} onClick={removeContribution}>{deleting ? <LoaderCircle size={15} className="spin"/> : <X size={15}/>} {deleting ? "Deleting…" : "Delete my contribution"}</button>}
   </section>;
 }
