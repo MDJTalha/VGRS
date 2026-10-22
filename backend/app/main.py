@@ -124,7 +124,7 @@ class RequestGuardMiddleware:
             return
 
         path = scope.get("path", "")
-        if path == "/api/v1/analyze":
+        if path in {"/api/v1/analyze", "/api/v1/research/contributions"}:
             body_limit = MAX_UPLOAD_BYTES + BODY_OVERHEAD_BYTES
         elif path == "/api/v1/analyze/batch":
             body_limit = MAX_BATCH_BYTES + BODY_OVERHEAD_BYTES
