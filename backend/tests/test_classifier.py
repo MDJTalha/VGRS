@@ -81,11 +81,18 @@ def test_custom_classifier_requires_matching_validated_license_report(tmp_path, 
     report = tmp_path / "validation.json"
     report.write_text(json.dumps({
         "production_approved": True,
+        "consent_and_dataset_rights_reviewed": True,
         "model_version": "demo-2026-10",
         "dataset_version": "consented-speaker-heldout-v1",
         "speaker_count": 500,
         "macro_f1": 0.82,
         "balanced_accuracy": 0.84,
+        "per_class_metrics": {"Feminine-coded": {"precision": 0.83, "recall": 0.84}},
+        "subgroup_metrics": {"en-US": {"macro_f1": 0.80}},
+        "calibration": {"method": "temperature-scaling", "expected_calibration_error": 0.04},
+        "abstention_coverage": 0.91,
+        "evaluation_date": "2026-10-22",
+        "label_definition": "Perceived vocal presentation and perceived age group.",
     }), encoding="utf-8")
     monkeypatch.setenv("VGRS_CLASSIFIER_BACKEND", "custom-plugin")
     monkeypatch.setenv("VGRS_CLASSIFIER_PLUGIN", "vgrs_test_classifier_plugin:create_classifier")
