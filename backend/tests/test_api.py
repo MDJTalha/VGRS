@@ -1,9 +1,13 @@
 from io import BytesIO
+from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import soundfile as sf
 from fastapi.testclient import TestClient
 
+import app.audio_pipeline as audio_pipeline
 from app.main import app
 from app.audio_pipeline import analyze_audio, AudioValidationError
 
@@ -60,6 +64,38 @@ def test_resamples_44100_hz_audio_to_16000_hz():
     assert result.sample_rate == 16000
     assert result.features["sample_rate_hz"] == 16000
     assert abs(result.features["f0_median_hz"] - 180) < 8
+
+
+def test_ffmpeg_fallback_uses_resolved_binary(monkeypatch):
+    original_read = audio_pipeline.sf.read
+    read_count = 0
+    seen = {}
+
+    def soundfile_read_with_fallback(source, *args, **kwargs):
+        nonlocal read_count
+        read_count += 1
+        if read_count == 1:
+            raise RuntimeError("Codec is not supported by the primary decoder.")
+        return original_read(source, *args, **kwargs)
+
+    def fake_ffmpeg(command, **kwargs):
+        seen["command"] = command
+        return SimpleNamespace(stdout=wav_bytes(), stderr=b"")
+
+    monkeypatch.setattr(audio_pipeline.sf, "read", soundfile_read_with_fallback)
+    monkeypatch.setattr(audio_pipeline.subprocess, "run", fake_ffmpeg)
+    result = analyze_audio(b"compressed fixture bytes", "voice.m4a")
+
+    assert read_count == 2
+    assert Path(seen["command"][0]).is_file()
+    assert "pipe:0" in seen["command"]
+    assert result.features["duration_seconds"] == 3.0
+
+
+def test_missing_ffmpeg_returns_actionable_error(monkeypatch):
+    monkeypatch.setattr(audio_pipeline, "_ffmpeg_executable", lambda: "vgrs-test-ffmpeg-not-installed")
+    with pytest.raises(AudioValidationError, match="FFmpeg is unavailable"):
+        analyze_audio(b"not really audio", "voice.mp3")
 
 
 def test_too_short_audio_is_rejected():
