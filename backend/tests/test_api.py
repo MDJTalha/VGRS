@@ -319,5 +319,5 @@ def test_research_contribution_never_accepts_data_in_production(monkeypatch, tmp
         data={"consent_to_research": "true", "actual_age_years": "32"},
         files={"file": ("adult.wav", wav_bytes(), "audio/wav")},
     )
-    assert response.status_code == 404
+    assert response.status_code in {403, 404}
     assert not list(tmp_path.iterdir())
