@@ -1,6 +1,6 @@
 # VGRS — Voice Analysis Studio
 
-A local-first browser application for audio validation and acoustic measurements, with deliberately conservative classification behavior. The current build performs real signal analysis but does **not** yet infer age group or perceived vocal presentation: those predictions stay unavailable until a suitable licensed model has been integrated and validated. The application never fills unavailable predictions with fake labels or scores.
+A local-first browser application for audio validation, acoustic measurements and gated voice-attribute model inference. The default build performs real signal analysis and leaves age-group and perceived-vocal-presentation estimates unavailable until a suitable model is configured. An opt-in public audEERING adapter is provided for **non-commercial research only**; it is experimental and blocked in production. A production classifier must have separate commercial-use rights, a reviewed validation report, and suitable population coverage. The application never fills unavailable predictions with fake labels or scores.
 
 ## Start directly on Windows
 
@@ -25,7 +25,7 @@ For a convenience startup script, run `powershell -ExecutionPolicy Bypass -File 
 - `POST /api/v1/analyze/batch` — up to 20 multipart files named `files` plus required `consent=true`.
 - `GET /docs` — interactive OpenAPI documentation.
 
-Requests without consent are rejected. Defaults: 25 MB per file, 2–120 seconds and source sample rates 8–96 kHz. Unsupported extensions return HTTP 415; silent, malformed and too-short decoded recordings return HTTP 422; excess upload size returns HTTP 413. Batch reports retain file-specific status when individual inputs fail.
+Requests without consent are rejected. Defaults: 25 MB per file, 100 MB aggregate batch, up to 20 files, 2–120 seconds, and source sample rates 8–96 kHz. Analysis concurrency is capped at two by default. Request bodies are size-limited, FFmpeg decoding is duration-limited, and API responses carry request IDs and basic security headers. Unsupported extensions return HTTP 415; silent, malformed and too-short decoded recordings return HTTP 422; excess upload size returns HTTP 413. Batch reports retain file-specific status when individual inputs fail. `GET /api/v1/ready` exposes deployment/model readiness separately from `GET /api/v1/health` liveness.
 
 Supported extensions include WAV, FLAC, OGG, AIFF, MP3, M4A and WebM, subject to codec availability. SoundFile/libsndfile handles supported formats first; FFmpeg is used as a fallback for additional codecs. The backend requirements install the `imageio-ffmpeg` package, which provides a bundled FFmpeg executable on supported platforms. Uploaded media is passed to the decoder through stdin and decoded audio is received through stdout; the original upload is not saved as a project file. If the bundled executable is unavailable, install FFmpeg separately and ensure it is available on `PATH`.
 
@@ -53,7 +53,7 @@ Metrics from a held-out prediction CSV:
 
 See `ml/evaluation/README.md` for required columns and probability-score formats. Populate duplicate-group identifiers after near-duplicate checks. Do not split recordings from the same speaker across train, validation and test.
 
-Model research and the adoption decision are in `docs/research-decisions.md`. The audEERING public model is explicitly non-commercial under its published license, and its child/female/male outputs do not match our requested labels directly. VoxProfile lists an MIT license but describes training on Korean-language corpora; that alone does not establish suitability for multilingual VGRS. Consequently, no demographic classification model is enabled here. No classification accuracy is claimed.
+Model research and the adoption decision are in `docs/research-decisions.md`. The audEERING public model is non-commercial-only under CC BY-NC-SA 4.0 and the publisher describes the open model as English-focused; it is therefore available only via explicit opt-in research configuration and is blocked in production. VoxProfile lists an MIT license but describes training on Korean-language corpora; that does not establish suitability for multilingual VGRS. Neither is approved as a production model. See `docs/production-readiness.md` for optional research setup, the custom model-plugin contract, validation evidence requirements and fail-closed production deployment gates.
 
 Before enabling classification, confirm legal rights for model weights, code and data; ensure consent and demographic representation; verify label mapping/preprocessing; perform speaker-independent evaluation and subgroup analysis; measure macro-F1, balanced accuracy, per-class precision/recall, confusion matrices, calibration and abstention coverage; document latency, limitations and versioning. Do not use raw neural network scores as calibrated probabilities without evidence.
 
@@ -61,7 +61,7 @@ Before enabling classification, confirm legal rights for model weights, code and
 
 Audio is not intentionally saved to project storage and no audio history is implemented. The API closes each upload after the request. However, multipart parsers may temporarily spool larger request bodies to the operating system temp directory, so this is **not a strict RAM-only guarantee**. Read `docs/privacy.md` before changing deployment boundaries. The frontend has no external font request; recordings are sent to the configured API origin. The consent checkbox and API form field must both be present.
 
-This project is not production-certified. Before network exposure add authentication, authorization, rate limits, request/concurrency timeouts, TLS and reviewed proxy configuration, strict CORS, resource ceilings, dependency monitoring and an operational privacy review. Never commit `.env`, private recordings, model secrets, or restricted datasets.
+This project is not production-certified. Production mode intentionally refuses startup unless explicit HTTPS origins/hosts, reviewed reverse-proxy authentication and network isolation, proxy-side rate limiting, a licensed custom classifier, and a matching validation report are configured. These environment checks do not install the proxy for you; test the actual deployment boundary independently. Review `docs/privacy.md` and `docs/production-readiness.md` before deployment. Never commit `.env`, private recordings, model secrets, weights or restricted datasets.
 
 ## Tests and verification
 
@@ -72,7 +72,7 @@ From the repository root:
 - `npm run build`
 - `npm audit --audit-level=moderate`
 
-The latest local verification before the codec-support change passed 11 backend tests, two evaluation-tool tests, three frontend tests, a TypeScript/Vite production build, a zero-vulnerability npm audit and a current-source consent/API smoke test. New FFmpeg fallback tests run in GitHub Actions after this change; see the workflow before treating the newest code as verified. A synthetic pure-tone fixture validates a code path only; it does not establish natural-speech performance. See `docs/evaluation-report.md` for current verification boundaries.
+Reproduce the latest checks on the commit you deploy using the commands above and the GitHub Actions workflow. Tests cover generated tones, API consent and size/duration boundaries, FFmpeg fallback, classifier abstention and fail-closed production gates. Synthetic fixtures do not establish natural-speech or demographic-classifier performance. No real VGRS age/presentation classifier accuracy is claimed; see `docs/evaluation-report.md` and `docs/production-readiness.md` for acceptance limits.
 
 ## Documentation map
 
@@ -81,5 +81,6 @@ The latest local verification before the codec-support change passed 11 backend 
 - `docs/model-card.md` — acoustic baseline, limitations and evaluation status.
 - `docs/privacy.md` — retention assumptions and deployment safeguards.
 - `docs/evaluation-report.md` — evidence and items not yet verified.
+- `docs/production-readiness.md` — deployment gates, research-classifier setup and validation contract.
 - `data/README.md` — dataset handling policy.
 - `ml/evaluation/README.md` — split and metrics commands.
