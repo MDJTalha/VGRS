@@ -27,7 +27,7 @@
 
 ## Production boundary
 
-When `VGRS_ENV=production`, startup fails unless origins and trusted hosts are explicit, HTTPS origins are configured, authentication/authorization and rate limiting are handled by a reviewed reverse proxy, the API network is isolated so proxy controls cannot be bypassed, and a licensed custom classifier has a matching production-approved report. The app intentionally does not claim to implement user accounts, organization membership or role-based access control.
+When `VGRS_ENV=production`, startup fails unless HTTPS origins/hosts, narrow trusted-proxy IP networks, a 32+ character proxy shared secret, gateway-injected authenticated-user/role headers, proxy authentication/authorization, rate limiting and network isolation are configured, and a licensed custom classifier has a matching production-approved report. The API enforces the trusted network + secret, allows only admin/analyst/viewer roles, and requires admin/analyst for analysis POSTs.
 
 The public audEERING weights are only used in an explicitly enabled non-commercial research environment and are never accepted by the production configuration. The repository does not contain any third-party model weights or private voice data.
 
