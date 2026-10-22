@@ -31,11 +31,21 @@ def age_group(age_years: float) -> str:
 
 
 def mae(rows: list[dict[str, Any]], key: str) -> float:
-    return mean(abs(float(row[key]) - float(row["actual_age_years"])) for row in rows)
+    per_speaker: dict[str, list[float]] = defaultdict(list)
+    for row in rows:
+        per_speaker[str(row["speaker_id"])].append(
+            abs(float(row[key]) - float(row["actual_age_years"]))
+        )
+    return mean(mean(speaker_errors) for speaker_errors in per_speaker.values())
 
 
 def group_accuracy(rows: list[dict[str, Any]], key: str) -> float:
-    return mean(age_group(float(row[key])) == age_group(float(row["actual_age_years"])) for row in rows)
+    per_speaker: dict[str, list[float]] = defaultdict(list)
+    for row in rows:
+        per_speaker[str(row["speaker_id"])].append(
+            float(age_group(float(row[key])) == age_group(float(row["actual_age_years"])))
+        )
+    return mean(mean(speaker_accuracy) for speaker_accuracy in per_speaker.values())
 
 
 def main() -> int:
@@ -107,8 +117,21 @@ def main() -> int:
 
     x = np.asarray([row["raw_predicted_age_years"] for row in train], dtype=np.float64)
     y = np.asarray([row["actual_age_years"] for row in train], dtype=np.float64)
+    records_per_speaker: dict[str, int] = defaultdict(int)
+    for row in train:
+        records_per_speaker[str(row["speaker_id"])] += 1
+    # Normalize each speaker to equal total weight so prolific contributors cannot
+    # dominate the fitted correction merely by sending more recordings.
+    weights = np.asarray(
+        [1.0 / records_per_speaker[str(row["speaker_id"])] for row in train],
+        dtype=np.float64,
+    )
     design = np.column_stack((x, np.ones_like(x)))
-    slope, intercept = (float(value) for value in np.linalg.lstsq(design, y, rcond=None)[0])
+    sqrt_weights = np.sqrt(weights)
+    slope, intercept = (
+        float(value)
+        for value in np.linalg.lstsq(design * sqrt_weights[:, None], y * sqrt_weights, rcond=None)[0]
+    )
     if not np.isfinite((slope, intercept)).all() or not (0.25 <= slope <= 2.0) or not (-40 <= intercept <= 40):
         raise SystemExit(
             "Fitted parameters are outside guarded research bounds. More data or a different model may be required."
