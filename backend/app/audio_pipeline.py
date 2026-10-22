@@ -22,6 +22,7 @@ class AudioAnalysis:
     channels: int
     features: dict[str, Any]
     quality: dict[str, Any]
+    waveform: np.ndarray
 
 def _ffmpeg_executable() -> str:
     """Resolve the bundled FFmpeg binary, with a system PATH fallback."""
@@ -32,13 +33,24 @@ def _ffmpeg_executable() -> str:
         # Keeps the error path useful when dependencies were not installed fully.
         return "ffmpeg"
 
-def _decode(payload: bytes, filename: str) -> tuple[np.ndarray, int, int]:
+def _decode(payload: bytes, filename: str, *, max_duration: float = 120.0) -> tuple[np.ndarray, int, int]:
     ext = "." + filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
     if ext not in ALLOWED_EXTENSIONS:
         raise AudioValidationError("Unsupported audio extension.")
     try:
-        samples, sr = sf.read(BytesIO(payload), dtype="float32", always_2d=True)
+        source = BytesIO(payload)
+        info = sf.info(source)
+        if info.samplerate < 8000 or info.samplerate > 96000:
+            raise AudioValidationError("Sample rate must be between 8 kHz and 96 kHz.")
+        if info.channels < 1 or info.channels > 8:
+            raise AudioValidationError("Audio must contain between 1 and 8 channels.")
+        if info.duration > max_duration:
+            raise AudioValidationError(f"Recording exceeds the {max_duration:.0f}-second duration limit.")
+        source.seek(0)
+        samples, sr = sf.read(source, dtype="float32", always_2d=True)
         return samples, int(sr), int(samples.shape[1])
+    except AudioValidationError:
+        raise
     except Exception as decode_error:
         # FFmpeg fallback streams bytes through stdin/stdout; original audio is not saved.
         try:
@@ -86,7 +98,7 @@ def analyze_audio(payload: bytes, filename: str, *, max_duration: float = 120.0,
                   min_duration: float = 2.0) -> AudioAnalysis:
     if not payload:
         raise AudioValidationError("The uploaded file is empty.")
-    samples, source_sr, channels = _decode(payload, filename)
+    samples, source_sr, channels = _decode(payload, filename, max_duration=max_duration)
     if source_sr < 8000 or source_sr > 96000:
         raise AudioValidationError("Sample rate must be between 8 kHz and 96 kHz.")
     if samples.size == 0 or not np.isfinite(samples).all():
@@ -162,4 +174,5 @@ def analyze_audio(payload: bytes, filename: str, *, max_duration: float = 120.0,
         "speaking_rate_words_per_minute": None,
     }
     return AudioAnalysis(duration, source_sr, sr, channels, features,
-                         {"status": "acceptable" if not warnings else "check_recording", "warnings": warnings})
+                         {"status": "acceptable" if not warnings else "check_recording", "warnings": warnings},
+                         mono.astype(np.float32, copy=False))
