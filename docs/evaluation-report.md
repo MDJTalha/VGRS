@@ -50,7 +50,7 @@ npm audit --audit-level=moderate
 Pop-Location
 ```
 
-If Python and Node dependency resolution passes, also run `pip-audit -r backend/requirements.txt` (install `pip-audit` in the environment first) and repeat the codec matrix using authorized sample recordings.
+The current CI audit found a vulnerable test-only dependency in the former runtime file; the fix splits runtime and dev dependencies and upgrades pytest. Run `pip-audit -r backend/requirements-dev.txt -r ml/evaluation/requirements.txt` (install `pip-audit` in the environment first) and repeat the codec matrix using authorized sample recordings. Do not mark the dependency audit passed until CI confirms the updated requirement set.
 
 ## Production gate
 

@@ -213,3 +213,15 @@ def test_production_viewer_cannot_analyze_but_analyst_can(monkeypatch):
 
     assert _middleware_response_status(viewer) == 403
     assert _middleware_response_status(analyst) == 200
+
+
+
+def test_production_startup_rejects_broad_proxy_network(monkeypatch):
+    monkeypatch.setattr(main_module, "ENVIRONMENT", "production")
+    monkeypatch.setattr(main_module, "ORIGINS", ["https://vgrs.example"])
+    monkeypatch.setattr(main_module, "TRUSTED_HOSTS", ["api.vgrs.example"])
+    monkeypatch.setattr(main_module, "TRUSTED_PROXY_NETWORKS", [ipaddress.ip_network("10.10.0.0/16")])
+    monkeypatch.setattr(main_module, "PROXY_SHARED_SECRET", "x" * 40)
+
+    with pytest.raises(RuntimeError, match="VGRS_TRUSTED_PROXY_IPS"):
+        main_module.validate_production_configuration()

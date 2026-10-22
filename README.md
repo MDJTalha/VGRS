@@ -65,14 +65,23 @@ This project is not production-certified. Production mode intentionally refuses 
 
 ## Tests and verification
 
-From the repository root:
+From the repository root, install test-only dependencies first:
+
+```powershell
+.\backend\.venv\Scripts\python.exe -m pip install -r backend\requirements-dev.txt
+.\backend\.venv\Scripts\python.exe -m pip install -r ml\evaluation\requirements.txt
+```
+
+Then run:
+- `backend\.venv\Scripts\python.exe -m compileall -q backend\app backend\tests`
 - `backend\.venv\Scripts\python.exe -m pytest backend\tests -q`
-- `backend\.venv\Scripts\python.exe -m pytest ml\evaluation\tests -q` (requires the optional evaluation dependencies)
+- `backend\.venv\Scripts\python.exe -m pytest ml\evaluation\tests -q`
 - `cd frontend; npm test`
 - `npm run build`
 - `npm audit --audit-level=moderate`
+- `pip-audit -r backend\requirements-dev.txt -r ml/evaluation/requirements.txt`
 
-Reproduce the latest checks on the commit you deploy using the commands above and the GitHub Actions workflow. Tests cover generated tones, API consent and size/duration boundaries, FFmpeg fallback, classifier abstention and fail-closed production gates. Synthetic fixtures do not establish natural-speech or demographic-classifier performance. No real VGRS age/presentation classifier accuracy is claimed; see `docs/evaluation-report.md` and `docs/production-readiness.md` for acceptance limits.
+The backend runtime requirements exclude pytest and HTTP test-client tooling; the separate dev requirements install the patched pytest/httpx2 test stack. Reproduce checks on the exact commit you deploy using these commands and the GitHub Actions workflow. Tests cover generated tones, API consent and size/duration boundaries, FFmpeg fallback, classifier abstention and fail-closed production gates. Synthetic fixtures do not establish natural-speech or demographic-classifier performance. No real VGRS age/presentation classifier accuracy is claimed; see `docs/evaluation-report.md` and `docs/production-readiness.md` for acceptance limits.
 
 ## Documentation map
 
