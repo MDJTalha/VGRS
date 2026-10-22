@@ -76,7 +76,11 @@ if not zipfile.is_zipfile(archive_path):
     archive_path.unlink(missing_ok=True)
     raise RuntimeError("Downloaded content is not a valid ZIP archive. The incomplete file was removed.")
 
-digest = hashlib.md5(archive_path.read_bytes()).hexdigest()
+hasher = hashlib.md5()
+with archive_path.open("rb") as handle:
+    for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+        hasher.update(chunk)
+digest = hasher.hexdigest()
 if digest.lower() != expected_md5:
     archive_path.unlink(missing_ok=True)
     raise RuntimeError(
