@@ -225,3 +225,99 @@ def test_production_startup_rejects_broad_proxy_network(monkeypatch):
 
     with pytest.raises(RuntimeError, match="VGRS_TRUSTED_PROXY_IPS"):
         main_module.validate_production_configuration()
+
+
+class FakeResearchRuntime:
+    production_ready = False
+
+    def predict(self, waveform, sample_rate):
+        return {
+            "age_group": {
+                "status": "experimental", "label": "30–44", "scores": None,
+                "model_version": "test-research-model", "note": "Research estimate.",
+                "estimated_age_years": 36.0, "calibration_applied": False,
+            },
+            "vocal_presentation": {
+                "status": "experimental", "label": "Masculine-coded", "scores": None,
+                "model_version": "test-research-model", "note": "Research estimate.",
+            },
+        }
+
+    def metadata(self):
+        return {
+            "id": "test-research-model", "version": "test-research-model",
+            "status": "experimental", "limitations": ["test only"],
+        }
+
+
+def test_research_contribution_is_disabled_by_default(monkeypatch, tmp_path):
+    monkeypatch.setattr(main_module, "ENVIRONMENT", "development")
+    monkeypatch.setattr(main_module, "RESEARCH_DATA_DIR", tmp_path)
+    monkeypatch.delenv("VGRS_ENABLE_RESEARCH_CONTRIBUTIONS", raising=False)
+    response = client.post(
+        "/api/v1/research/contributions",
+        data={"consent_to_research": "true", "actual_age_years": "32"},
+        files={"file": ("adult.wav", wav_bytes(), "audio/wav")},
+    )
+    assert response.status_code == 404
+    assert not list(tmp_path.iterdir())
+
+
+def test_research_contribution_requires_separate_opt_in(monkeypatch, tmp_path):
+    monkeypatch.setattr(main_module, "ENVIRONMENT", "development")
+    monkeypatch.setattr(main_module, "RESEARCH_DATA_DIR", tmp_path)
+    monkeypatch.setenv("VGRS_ENABLE_RESEARCH_CONTRIBUTIONS", "true")
+    response = client.post(
+        "/api/v1/research/contributions",
+        data={"consent_to_research": "false", "actual_age_years": "32"},
+        files={"file": ("adult.wav", wav_bytes(), "audio/wav")},
+    )
+    assert response.status_code == 403
+    assert not list(tmp_path.iterdir())
+
+
+def test_research_contribution_stores_only_after_consent_and_can_be_deleted(monkeypatch, tmp_path):
+    monkeypatch.setattr(main_module, "ENVIRONMENT", "development")
+    monkeypatch.setattr(main_module, "RESEARCH_DATA_DIR", tmp_path)
+    monkeypatch.setattr(main_module, "classifier_runtime", FakeResearchRuntime())
+    monkeypatch.setenv("VGRS_ENABLE_RESEARCH_CONTRIBUTIONS", "true")
+
+    response = client.post(
+        "/api/v1/research/contributions",
+        data={
+            "consent_to_research": "true",
+            "actual_age_years": "32",
+            "participant_code": "SPEAKER_01",
+        },
+        files={"file": ("my-private-name.wav", wav_bytes(), "audio/wav")},
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["stored"] is True
+    assert body["model_updated"] is False
+    contribution_dir = tmp_path / body["contribution_id"]
+    assert (contribution_dir / "recording.wav").is_file()
+    metadata = __import__("json").loads((contribution_dir / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["actual_age_years"] == 32
+    assert metadata["actual_age_group"] == "30–44"
+    assert metadata["speaker_id"] == "SPEAKER_01"
+    assert metadata["consent_to_research"] is True
+    assert metadata["label_source"] == "self_reported"
+    assert "my-private-name.wav" not in (contribution_dir / "metadata.json").read_text(encoding="utf-8")
+
+    deleted = client.delete("/api/v1/research/contributions/" + body["contribution_id"])
+    assert deleted.status_code == 204
+    assert not contribution_dir.exists()
+
+
+def test_research_contribution_never_accepts_data_in_production(monkeypatch, tmp_path):
+    monkeypatch.setattr(main_module, "ENVIRONMENT", "production")
+    monkeypatch.setattr(main_module, "RESEARCH_DATA_DIR", tmp_path)
+    monkeypatch.setenv("VGRS_ENABLE_RESEARCH_CONTRIBUTIONS", "true")
+    response = client.post(
+        "/api/v1/research/contributions",
+        data={"consent_to_research": "true", "actual_age_years": "32"},
+        files={"file": ("adult.wav", wav_bytes(), "audio/wav")},
+    )
+    assert response.status_code == 404
+    assert not list(tmp_path.iterdir())
