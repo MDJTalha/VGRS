@@ -234,7 +234,7 @@ export default function App() {
           <section className="stats-grid">
             <StatCard label="Session analyses" value={String(activities.length)} description="Completed in this browser session" icon={FileClock} tint="green" footer="Not persisted to a database"/>
             <StatCard label="Acoustic pipeline" value={acousticModel?.status === "available" ? "Available" : health.status === "offline" ? "Offline" : "Checking"} description="Signal feature extraction" icon={Activity} tint="blue" footer={health.status === "online" ? "API is responding" : "Live service status"}/>
-            <StatCard label="Classification models" value={classifierModel?.status === "available" ? "Ready" : classifierModel?.status === "experimental" ? "Research mode" : "Not enabled"} description="Age group & vocal presentation" icon={Fingerprint} tint="amber" footer={classifierModel?.production_approved ? "Validation report checked" : "No production validation approval"}/>
+            <StatCard label="Classification models" value={classifierModel?.status === "available" ? "Ready" : classifierModel?.status === "experimental" ? "Research mode" : "Not enabled"} description="Age group & vocal presentation" icon={Fingerprint} tint="amber" footer={classifierModel?.production_approved ? "Validation report checked" : "No predictions are fabricated · no production validation approval"}/>
           </section>
           <div className="overview-columns">
             <section className="panel workflow-panel"><SectionHeading title="Analysis workspace" subtitle="Choose the workflow that fits your task." badge="WORKFLOWS"/>
