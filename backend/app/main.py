@@ -17,6 +17,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -172,6 +173,8 @@ def validate_production_configuration() -> None:
     # let a configuration flag masquerade as an authentication implementation.
     if os.getenv("VGRS_PROXY_NETWORK_ISOLATED", "").strip().lower() != "true":
         raise RuntimeError("Production startup blocked: restrict API network access to the authenticated proxy and set VGRS_PROXY_NETWORK_ISOLATED=true.")
+    if os.getenv("VGRS_PROXY_RATE_LIMIT_ACK", "").strip().lower() != "true":
+        raise RuntimeError("Production startup blocked: configure and confirm rate limiting at the authenticated reverse proxy.")
 
 
 app = FastAPI(
@@ -180,6 +183,8 @@ app = FastAPI(
     description="Acoustic analysis and gated model inference. Voice outputs are estimates, not verified identity or age.",
 )
 app.add_middleware(RequestGuardMiddleware)
+if TRUSTED_HOSTS:
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=TRUSTED_HOSTS)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ORIGINS,
@@ -296,6 +301,7 @@ def readiness() -> dict[str, Any]:
             os.getenv("VGRS_AUTH_MODE", "").strip().lower() == "reverse-proxy"
             and os.getenv("VGRS_PROXY_AUTH_ACK", "").strip().lower() == "true"
             and os.getenv("VGRS_PROXY_NETWORK_ISOLATED", "").strip().lower() == "true"
+            and os.getenv("VGRS_PROXY_RATE_LIMIT_ACK", "").strip().lower() == "true"
         ),
         "licensed_validated_classifier": classifier_runtime.production_ready,
     }
