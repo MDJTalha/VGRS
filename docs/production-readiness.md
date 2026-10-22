@@ -17,7 +17,7 @@ For optional non-commercial research only:
    - https://github.com/audeering/w2v2-age-gender-how-to
 2. Install optional dependencies:
    `backend\\.venv\\Scripts\\python.exe -m pip install -r backend\\requirements-classifier-research.txt`
-3. Download and extract the official six-layer ONNX model from the model publisher's referenced Zenodo release into a local folder. Do not commit the model or recordings to Git.
+3. From the repository root, run `powershell -ExecutionPolicy Bypass -File .\\scripts\\download-classifier-research.ps1` to download and extract the official six-layer ONNX model into the ignored local `models\\` folder. The script only downloads model files from the publisher's Zenodo URL; it does not enable the model automatically. Do not commit the model or recordings to Git.
 4. Set these variables only for a development or non-commercial research session:
    ```powershell
    $env:VGRS_ENV = "development"
