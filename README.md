@@ -41,6 +41,17 @@ Supported extensions include WAV, FLAC, OGG, AIFF, MP3, M4A and WebM, subject to
 
 SNR, jitter, shimmer and word speaking rate are explicitly reported unavailable in this baseline. Basic pitch tracking can fail on noisy, breathy, creaky, unvoiced or polyphonic material. Acoustic characteristics are not proof of identity, gender identity or chronological age.
 
+## Controlled research improvement
+
+VGRS supports an optional local, adult-only research contribution process. Separate research consent is required; ordinary analysis does not save recordings. Contributions stay on the configured API host, are disabled by default and cannot be collected when `VGRS_ENV=production`. They do not update the model immediately.
+
+With the opt-in research model dependencies installed, run:
+```powershell
+.\backend\.venv\Scripts\python.exe .\ml\improvement\evaluate_contributions.py
+.\backend\.venv\Scripts\python.exe .\ml\improvement\fit_age_calibration.py --predictions .\reports\research-improvement\predictions.csv --output .\reports\research-improvement\age-calibration-candidate.json
+```
+The evaluator reports age-estimation error and age-group accuracy. The calibration tool splits by speaker and evaluates on held-out speakers, then creates a candidate that is **not active** until it passes the research gate and receives explicit manual research approval. Generated reports and stored contributions are ignored by Git. These tools are not production certification, and the public research weights remain non-commercial only. Read [the complete workflow](docs/continuous-improvement.md) and [privacy notes](docs/privacy.md) before enabling collection.
+
 ## Evaluation and model adoption
 
 Install the optional evaluation tools using `backend\.venv\Scripts\python.exe -m pip install -r ml\evaluation\requirements.txt`.
