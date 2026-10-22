@@ -1,2 +1,2 @@
 # Optional research-only classifier adapter. Do not install/use for commercial deployment.
-audonnx>=0.7,<1.0
+audonnx>=0.8,<2.0
