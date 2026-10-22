@@ -145,7 +145,7 @@ class AudEERINGResearchAdapter:
         calibration_applied = False
         # Calibration is fitted on consenting adults only. Avoid applying it to
         # model outputs below 18, where it could worsen predictions for minors.
-        if self._age_calibration is not None and raw_estimated_age_years >= 18.0:
+        if getattr(self, "_age_calibration", None) is not None and raw_estimated_age_years >= 18.0:
             estimated_age_years = float(np.clip(
                 self._age_calibration["slope"] * raw_estimated_age_years
                 + self._age_calibration["intercept"],
