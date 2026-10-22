@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+import hmac
+import ipaddress
 import logging
 import os
 import time
@@ -36,6 +38,12 @@ ENVIRONMENT = os.getenv("VGRS_ENV", "development").strip().lower()
 RAW_ORIGINS = os.getenv("VGRS_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173")
 ORIGINS = [v.strip() for v in RAW_ORIGINS.split(",") if v.strip()]
 TRUSTED_HOSTS = [v.strip() for v in os.getenv("VGRS_TRUSTED_HOSTS", "").split(",") if v.strip()]
+TRUSTED_PROXY_IPS = [v.strip() for v in os.getenv("VGRS_TRUSTED_PROXY_IPS", "").split(",") if v.strip()]
+try:
+    TRUSTED_PROXY_NETWORKS = [ipaddress.ip_network(v, strict=False) for v in TRUSTED_PROXY_IPS]
+except ValueError as exc:
+    raise RuntimeError("VGRS_TRUSTED_PROXY_IPS must contain valid IP addresses or CIDR ranges.") from exc
+PROXY_SHARED_SECRET = os.getenv("VGRS_PROXY_SHARED_SECRET", "")
 BODY_OVERHEAD_BYTES = 1024 * 1024
 ANALYSIS_SEMAPHORE = asyncio.Semaphore(MAX_CONCURRENT_ANALYSES)
 logger = logging.getLogger("vgrs.api")
@@ -80,6 +88,51 @@ class RequestGuardMiddleware:
         state = scope.setdefault("state", {})
         state["request_id"] = request_id
         headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        if ENVIRONMENT == "production":
+            peer_host = (scope.get("client") or ("", 0))[0]
+            try:
+                peer_ip = ipaddress.ip_address(peer_host)
+                trusted_peer = any(peer_ip in network for network in TRUSTED_PROXY_NETWORKS)
+            except ValueError:
+                trusted_peer = False
+            if not trusted_peer:
+                response = JSONResponse(
+                    status_code=403,
+                    content={"detail": {"code": "untrusted_proxy", "message": "Requests must arrive through the configured trusted gateway."}},
+                )
+                response.headers["X-Request-ID"] = request_id
+                await response(scope, receive, send)
+                return
+            received_secret = headers.get(b"x-vgrs-proxy-secret", b"").decode("utf-8", errors="ignore")
+            if not PROXY_SHARED_SECRET or not hmac.compare_digest(received_secret, PROXY_SHARED_SECRET):
+                response = JSONResponse(
+                    status_code=401,
+                    content={"detail": {"code": "proxy_auth_required", "message": "The trusted gateway did not authenticate this request."}},
+                )
+                response.headers["X-Request-ID"] = request_id
+                await response(scope, receive, send)
+                return
+            role = headers.get(b"x-vgrs-authenticated-role", b"").decode("utf-8", errors="ignore").strip().lower()
+            user_id = headers.get(b"x-vgrs-authenticated-user", b"").decode("utf-8", errors="ignore").strip()
+            # Liveness is available to the trusted, secret-bearing gateway for probes.
+            is_liveness_probe = path == "/api/v1/health" and scope.get("method") == "GET"
+            if not is_liveness_probe and (not user_id or role not in {"admin", "analyst", "viewer"}):
+                response = JSONResponse(
+                    status_code=401,
+                    content={"detail": {"code": "identity_required", "message": "The gateway must provide an authenticated user and approved role."}},
+                )
+                response.headers["X-Request-ID"] = request_id
+                await response(scope, receive, send)
+                return
+            if scope.get("method") == "POST" and path in {"/api/v1/analyze", "/api/v1/analyze/batch"} and role not in {"admin", "analyst"}:
+                response = JSONResponse(
+                    status_code=403,
+                    content={"detail": {"code": "role_forbidden", "message": "Your authenticated role cannot submit audio for analysis."}},
+                )
+                response.headers["X-Request-ID"] = request_id
+                await response(scope, receive, send)
+                return
+
         raw_length = headers.get(b"content-length")
         if raw_length:
             try:
@@ -122,12 +175,16 @@ class RequestGuardMiddleware:
                     b"x-frame-options": b"DENY",
                     b"referrer-policy": b"no-referrer",
                     b"permissions-policy": b"microphone=(self), camera=(), geolocation=()",
+                    b"cross-origin-resource-policy": b"same-origin",
+                    b"cross-origin-opener-policy": b"same-origin",
                 }
                 for name, value in security_headers.items():
                     if name not in lower_names:
                         existing.append((name, value))
                 if path.startswith("/api/v1/") and b"cache-control" not in lower_names:
                     existing.append((b"cache-control", b"no-store"))
+                if ENVIRONMENT == "production" and b"strict-transport-security" not in lower_names:
+                    existing.append((b"strict-transport-security", b"max-age=31536000; includeSubDomains"))
                 message["headers"] = existing
             await send(message)
 
@@ -166,6 +223,10 @@ def validate_production_configuration() -> None:
         raise RuntimeError("Production startup blocked: VGRS_ALLOWED_ORIGINS must contain explicit HTTPS origins only.")
     if not TRUSTED_HOSTS or "*" in TRUSTED_HOSTS:
         raise RuntimeError("Production startup blocked: set explicit VGRS_TRUSTED_HOSTS.")
+    if not TRUSTED_PROXY_NETWORKS or any(network.prefixlen == 0 for network in TRUSTED_PROXY_NETWORKS):
+        raise RuntimeError("Production startup blocked: configure narrow VGRS_TRUSTED_PROXY_IPS networks for the gateway only.")
+    if len(PROXY_SHARED_SECRET) < 32:
+        raise RuntimeError("Production startup blocked: set VGRS_PROXY_SHARED_SECRET to a random secret of at least 32 characters.")
     if os.getenv("VGRS_AUTH_MODE", "").strip().lower() != "reverse-proxy":
         raise RuntimeError("Production startup blocked: configure reviewed reverse-proxy authentication (VGRS_AUTH_MODE=reverse-proxy).")
     if os.getenv("VGRS_PROXY_AUTH_ACK", "").strip().lower() != "true":
