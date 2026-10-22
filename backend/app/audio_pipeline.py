@@ -101,6 +101,8 @@ def analyze_audio(payload: bytes, filename: str, *, max_duration: float = 120.0,
     samples, source_sr, channels = _decode(payload, filename, max_duration=max_duration)
     if source_sr < 8000 or source_sr > 96000:
         raise AudioValidationError("Sample rate must be between 8 kHz and 96 kHz.")
+    if channels < 1 or channels > 8:
+        raise AudioValidationError("Audio must contain between 1 and 8 channels.")
     if samples.size == 0 or not np.isfinite(samples).all():
         raise AudioValidationError("Audio contains no usable samples or invalid values.")
     duration = len(samples) / source_sr
