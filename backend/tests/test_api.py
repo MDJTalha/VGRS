@@ -67,29 +67,24 @@ def test_resamples_44100_hz_audio_to_16000_hz():
 
 
 def test_ffmpeg_fallback_uses_resolved_binary(monkeypatch):
-    original_read = audio_pipeline.sf.read
-    read_count = 0
     seen = {}
 
-    def soundfile_read_with_fallback(source, *args, **kwargs):
-        nonlocal read_count
-        read_count += 1
-        if read_count == 1:
-            raise RuntimeError("Codec is not supported by the primary decoder.")
-        return original_read(source, *args, **kwargs)
+    def unsupported_metadata(*args, **kwargs):
+        raise RuntimeError("Codec is not supported by the primary decoder.")
 
     def fake_ffmpeg(command, **kwargs):
         seen["command"] = command
         return SimpleNamespace(stdout=wav_bytes(), stderr=b"")
 
-    monkeypatch.setattr(audio_pipeline.sf, "read", soundfile_read_with_fallback)
+    monkeypatch.setattr(audio_pipeline.sf, "info", unsupported_metadata)
     monkeypatch.setattr(audio_pipeline.subprocess, "run", fake_ffmpeg)
     result = analyze_audio(b"compressed fixture bytes", "voice.m4a")
 
-    assert read_count == 2
     assert Path(seen["command"][0]).is_file()
     assert "pipe:0" in seen["command"]
+    assert "-t" in seen["command"]
     assert result.features["duration_seconds"] == 3.0
+    assert result.waveform.shape[0] == 48000
 
 
 def test_missing_ffmpeg_returns_actionable_error(monkeypatch):
@@ -132,3 +127,19 @@ def test_batch_requires_consent():
         ("files", ("valid.wav", wav_bytes(), "audio/wav")),
     ])
     assert response.status_code == 403
+
+
+def test_decoded_duration_limit_is_checked_from_metadata():
+    with pytest.raises(AudioValidationError, match="exceeds the 2-second duration limit"):
+        analyze_audio(wav_bytes(seconds=3.0), "too-long.wav", max_duration=2.0)
+
+
+def test_readiness_and_security_headers_are_explicit():
+    response = client.get("/api/v1/ready")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["checks"]["licensed_validated_classifier"] is False
+    assert data["ready"] is False
+    health = client.get("/api/v1/health")
+    assert health.headers.get("x-request-id")
+    assert health.headers["x-content-type-options"] == "nosniff"
