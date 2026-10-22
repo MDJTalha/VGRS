@@ -23,6 +23,15 @@ class AudioAnalysis:
     features: dict[str, Any]
     quality: dict[str, Any]
 
+def _ffmpeg_executable() -> str:
+    """Resolve the bundled FFmpeg binary, with a system PATH fallback."""
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except (ImportError, RuntimeError, OSError):
+        # Keeps the error path useful when dependencies were not installed fully.
+        return "ffmpeg"
+
 def _decode(payload: bytes, filename: str) -> tuple[np.ndarray, int, int]:
     ext = "." + filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
     if ext not in ALLOWED_EXTENSIONS:
@@ -34,16 +43,17 @@ def _decode(payload: bytes, filename: str) -> tuple[np.ndarray, int, int]:
         # FFmpeg fallback streams bytes through stdin/stdout; original audio is not saved.
         try:
             proc = subprocess.run(
-                ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-i", "pipe:0",
+                [_ffmpeg_executable(), "-nostdin", "-hide_banner", "-loglevel", "error", "-i", "pipe:0",
                  "-f", "wav", "-acodec", "pcm_f32le", "pipe:1"],
                 input=payload, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=25, check=True,
             )
             samples, sr = sf.read(BytesIO(proc.stdout), dtype="float32", always_2d=True)
             return samples, int(sr), int(samples.shape[1])
-        except FileNotFoundError:
+        except FileNotFoundError as exc:
             raise AudioValidationError(
-                "The local decoder cannot read this codec. Install FFmpeg for MP3/M4A/WebM support."
-            ) from decode_error
+                "FFmpeg is unavailable. Reinstall backend requirements (which bundle FFmpeg on supported platforms), "
+                "or install FFmpeg and add it to PATH for MP3/M4A/WebM support."
+            ) from exc
         except subprocess.TimeoutExpired as exc:
             raise AudioValidationError("Audio decoding timed out; try a shorter recording.") from exc
         except Exception as exc:
