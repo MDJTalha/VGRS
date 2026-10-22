@@ -515,3 +515,5 @@ button:focus:not(:focus-visible) { outline: none; }
   .research-contribution-form { grid-template-columns: 1fr; }
   .research-field, .research-consent, .research-submit, .research-model-version { grid-column: 1; }
 }
+
+.research-disabled-note { display: flex; align-items: flex-start; gap: 8px; padding: 10px 11px; border-radius: 8px; color: #6e5b2a; background: #fff8e8; font-size: 11px; line-height: 1.55; }
