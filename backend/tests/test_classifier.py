@@ -1,5 +1,6 @@
 import json
 import sys
+from datetime import date
 from types import ModuleType
 
 import numpy as np
@@ -91,7 +92,7 @@ def test_custom_classifier_requires_matching_validated_license_report(tmp_path, 
         "subgroup_metrics": {"en-US": {"macro_f1": 0.80}},
         "calibration": {"method": "temperature-scaling", "expected_calibration_error": 0.04},
         "abstention_coverage": 0.91,
-        "evaluation_date": "2026-10-22",
+        "evaluation_date": date.today().isoformat(),
         "label_definition": "Perceived vocal presentation and perceived age group.",
     }), encoding="utf-8")
     monkeypatch.setenv("VGRS_CLASSIFIER_BACKEND", "custom-plugin")
@@ -120,3 +121,32 @@ def test_research_classifier_is_blocked_in_production(monkeypatch):
 
     with pytest.raises(ClassifierConfigurationError, match="cannot be enabled in production"):
         runtime.configure()
+
+
+
+def test_validation_report_rejects_boolean_metrics_and_expired_evidence(tmp_path, monkeypatch):
+    from app.classifier import _read_validation_report
+
+    base = {
+        "production_approved": True,
+        "consent_and_dataset_rights_reviewed": True,
+        "model_version": "model-v1",
+        "dataset_version": "dataset-v1",
+        "speaker_count": 500,
+        "macro_f1": 0.8,
+        "balanced_accuracy": 0.8,
+        "per_class_metrics": {"class-a": {"precision": 0.8, "recall": 0.8}},
+        "subgroup_metrics": {"language-a": {"macro_f1": 0.75}},
+        "calibration": {"method": "temperature-scaling"},
+        "abstention_coverage": 0.9,
+        "evaluation_date": date.today().isoformat(),
+        "label_definition": "Perceived presentation and perceived age.",
+    }
+    path = tmp_path / "validation.json"
+    monkeypatch.setenv("VGRS_CLASSIFIER_VALIDATION_REPORT", str(path))
+
+    path.write_text(json.dumps({**base, "macro_f1": True}), encoding="utf-8")
+    assert _read_validation_report() is None
+
+    path.write_text(json.dumps({**base, "evaluation_date": "2000-01-01"}), encoding="utf-8")
+    assert _read_validation_report() is None
