@@ -87,6 +87,10 @@ class AudEERINGResearchAdapter:
             raise ClassifierConfigurationError(
                 "Research age calibration is a candidate only. Review it and set approved_for_research=true before enabling."
             )
+        if report.get("schema_version") != 1 or report.get("method") != "affine_age_calibration":
+            raise ClassifierConfigurationError("Research age calibration has an unsupported schema or method.")
+        if report.get("performance_gate_passed") is not True:
+            raise ClassifierConfigurationError("Research age calibration did not pass its held-out performance gate.")
         if report.get("model_version") != self.model_version:
             raise ClassifierConfigurationError(
                 "Research age calibration model_version does not match the loaded classifier."
@@ -105,8 +109,16 @@ class AudEERINGResearchAdapter:
                 "Research age calibration is missing valid held-out evaluation metrics."
             ) from exc
         numeric = (slope, intercept, baseline_mae, calibrated_mae, baseline_accuracy, calibrated_accuracy)
-        if not np.isfinite(numeric).all() or not (0.25 <= slope <= 2.0) or not (-40.0 <= intercept <= 40.0):
-            raise ClassifierConfigurationError("Research age calibration parameters are outside safe bounds.")
+        if (
+            not np.isfinite(numeric).all()
+            or not (0.25 <= slope <= 2.0)
+            or not (-40.0 <= intercept <= 40.0)
+            or baseline_mae < 0
+            or calibrated_mae < 0
+            or not (0.0 <= baseline_accuracy <= 1.0)
+            or not (0.0 <= calibrated_accuracy <= 1.0)
+        ):
+            raise ClassifierConfigurationError("Research age calibration parameters or metrics are outside valid bounds.")
         if train_speakers < 20 or test_speakers < 10:
             raise ClassifierConfigurationError(
                 "Research age calibration needs at least 20 calibration speakers and 10 held-out test speakers."
