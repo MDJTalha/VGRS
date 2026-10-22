@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import App from "./App";
 
 describe("VGRS application workspace", () => {
@@ -18,7 +18,8 @@ describe("VGRS application workspace", () => {
 
   it("requires explicit consent before enabling audio analysis", () => {
     render(<App />);
-    fireEvent.click(screen.getByRole("button", { name: /Voice analysis/i }));
+    const mainNavigation = within(screen.getByRole("navigation", { name: /Main navigation/i }));
+    fireEvent.click(mainNavigation.getByRole("button", { name: /Voice analysis/i }));
     expect(screen.getByRole("checkbox", { name: /I have permission to submit this recording/i })).not.toBeChecked();
     expect(screen.getByRole("button", { name: /Run acoustic analysis/i })).toBeDisabled();
   });
