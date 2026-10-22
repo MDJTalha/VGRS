@@ -1,19 +1,25 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import App from "./App";
 
-describe("VGRS interface", () => {
-  it("shows the workspace heading", () => {
+describe("VGRS application workspace", () => {
+  it("renders the product dashboard", () => {
     render(<App />);
     expect(screen.getByRole("heading", { name: /Voice Analysis Studio/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Batch workspace/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /System settings/i })).toBeInTheDocument();
   });
-  it("discloses unavailable classification before analysis", () => {
+
+  it("makes classifier availability explicit without claiming predictions", () => {
     render(<App />);
-    expect(screen.getAllByText(/Classification remains unavailable/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Not enabled/i)).toBeInTheDocument();
+    expect(screen.getByText(/No predictions are fabricated/i)).toBeInTheDocument();
   });
-  it("requires explicit consent before analysis", () => {
+
+  it("requires explicit consent before enabling audio analysis", () => {
     render(<App />);
-    expect(screen.getByRole("checkbox", { name: /Consent before processing/i })).not.toBeChecked();
-    expect(screen.getByRole("button", { name: /Analyze recording/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /Voice analysis/i }));
+    expect(screen.getByRole("checkbox", { name: /I have permission to submit this recording/i })).not.toBeChecked();
+    expect(screen.getByRole("button", { name: /Run acoustic analysis/i })).toBeDisabled();
   });
 });
