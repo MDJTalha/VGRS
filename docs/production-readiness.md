@@ -60,12 +60,14 @@ When `VGRS_ENV=production`, startup fails closed unless all of the following are
 
 - `VGRS_ALLOWED_ORIGINS`: explicit HTTPS origins only; no wildcard.
 - `VGRS_TRUSTED_HOSTS`: explicit hostnames; no wildcard.
+- `VGRS_TRUSTED_PROXY_IPS`: narrow IP/CIDR list for the actual reverse proxy peers. Broad wildcard subnets are rejected.
+- `VGRS_PROXY_SHARED_SECRET`: random secret of at least 32 characters, shared only between the gateway and API. The gateway must strip any inbound client-supplied `X-VGRS-Proxy-Secret` header and overwrite it.
 - `VGRS_AUTH_MODE=reverse-proxy` and `VGRS_PROXY_AUTH_ACK=true`: all user-facing routes are protected by a reviewed authentication/authorization proxy.
 - `VGRS_PROXY_NETWORK_ISOLATED=true`: network rules ensure clients cannot bypass the authenticated proxy to reach FastAPI directly.
 - `VGRS_PROXY_RATE_LIMIT_ACK=true`: proxy-side request rate limiting is configured.
 - A licensed, matching, validated custom classifier plugin as described above.
 
-The application does not implement user accounts, browser sessions, organization membership or role authorization. Setting acknowledgement variables is not a substitute for installing and testing a real proxy. Never expose Uvicorn directly to the public Internet. Keep it bound to a private interface/loopback and apply TLS, authentication, authorization and rate limiting at the reviewed gateway.
+The application does not manage accounts or sessions itself. After the shared-secret and trusted-peer checks pass, production requests require proxy-injected `X-VGRS-Authenticated-User` and `X-VGRS-Authenticated-Role` headers. Accepted roles are `admin`, `analyst`, and `viewer`; only admin/analyst may submit analysis requests. The reverse proxy must remove any client-supplied versions of all `X-VGRS-*` headers before injecting its own. The shared secret authenticates the gateway-to-API hop; it does not replace the proxy's user authentication, its authorization rules, or network isolation. Setting acknowledgement variables is not a substitute for installing and testing a real proxy. Never expose Uvicorn directly to the public Internet. Keep it bound to a private interface/loopback and apply TLS, authentication, authorization and rate limiting at the reviewed gateway.
 
 ## Resource limits and privacy
 
