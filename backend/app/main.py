@@ -103,8 +103,9 @@ class RequestGuardMiddleware:
                 response.headers["X-Request-ID"] = request_id
                 await response(scope, receive, send)
                 return
-            received_secret = headers.get(b"x-vgrs-proxy-secret", b"").decode("utf-8", errors="ignore")
-            if not PROXY_SHARED_SECRET or not hmac.compare_digest(received_secret, PROXY_SHARED_SECRET):
+            received_secret = headers.get(b"x-vgrs-proxy-secret", b"")
+            expected_secret = PROXY_SHARED_SECRET.encode("utf-8")
+            if len(expected_secret) < 32 or not hmac.compare_digest(received_secret, expected_secret):
                 response = JSONResponse(
                     status_code=401,
                     content={"detail": {"code": "proxy_auth_required", "message": "The trusted gateway did not authenticate this request."}},
@@ -223,8 +224,11 @@ def validate_production_configuration() -> None:
         raise RuntimeError("Production startup blocked: VGRS_ALLOWED_ORIGINS must contain explicit HTTPS origins only.")
     if not TRUSTED_HOSTS or "*" in TRUSTED_HOSTS:
         raise RuntimeError("Production startup blocked: set explicit VGRS_TRUSTED_HOSTS.")
-    if not TRUSTED_PROXY_NETWORKS or any(network.prefixlen == 0 for network in TRUSTED_PROXY_NETWORKS):
-        raise RuntimeError("Production startup blocked: configure narrow VGRS_TRUSTED_PROXY_IPS networks for the gateway only.")
+    if not TRUSTED_PROXY_NETWORKS or any(
+        network.prefixlen < (24 if network.version == 4 else 64)
+        for network in TRUSTED_PROXY_NETWORKS
+    ):
+        raise RuntimeError("Production startup blocked: VGRS_TRUSTED_PROXY_IPS must use IPv4 /24 or narrower, or IPv6 /64 or narrower, for gateway peers.")
     if len(PROXY_SHARED_SECRET) < 32:
         raise RuntimeError("Production startup blocked: set VGRS_PROXY_SHARED_SECRET to a random secret of at least 32 characters.")
     if os.getenv("VGRS_AUTH_MODE", "").strip().lower() != "reverse-proxy":
@@ -367,7 +371,7 @@ def readiness() -> dict[str, Any]:
             and os.getenv("VGRS_PROXY_NETWORK_ISOLATED", "").strip().lower() == "true"
             and os.getenv("VGRS_PROXY_RATE_LIMIT_ACK", "").strip().lower() == "true"
             and bool(TRUSTED_PROXY_NETWORKS)
-            and all(network.prefixlen > 0 for network in TRUSTED_PROXY_NETWORKS)
+            and all(network.prefixlen >= (24 if network.version == 4 else 64) for network in TRUSTED_PROXY_NETWORKS)
             and len(PROXY_SHARED_SECRET) >= 32
         ),
         "licensed_validated_classifier": classifier_runtime.production_ready,
