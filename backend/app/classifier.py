@@ -137,15 +137,36 @@ def _read_validation_report() -> dict[str, Any] | None:
         return None
     if not isinstance(data, dict):
         return None
-    required = ("model_version", "dataset_version", "speaker_count", "macro_f1", "balanced_accuracy")
+    required = (
+        "production_approved", "model_version", "dataset_version", "speaker_count",
+        "macro_f1", "balanced_accuracy", "per_class_metrics", "subgroup_metrics",
+        "calibration", "abstention_coverage", "evaluation_date", "label_definition",
+        "consent_and_dataset_rights_reviewed",
+    )
     if any(key not in data for key in required):
         return None
-    if not isinstance(data.get("speaker_count"), int) or data["speaker_count"] <= 0:
+    if data.get("production_approved") is not True or data.get("consent_and_dataset_rights_reviewed") is not True:
         return None
-    for key in ("macro_f1", "balanced_accuracy"):
+    if not isinstance(data.get("model_version"), str) or not data["model_version"].strip():
+        return None
+    if not isinstance(data.get("dataset_version"), str) or not data["dataset_version"].strip():
+        return None
+    if not isinstance(data.get("speaker_count"), int) or data["speaker_count"] < 500:
+        return None
+    for key in ("macro_f1", "balanced_accuracy", "abstention_coverage"):
         value = data.get(key)
         if not isinstance(value, (int, float)) or not 0 <= float(value) <= 1:
             return None
+    if not isinstance(data.get("per_class_metrics"), dict) or not data["per_class_metrics"]:
+        return None
+    if not isinstance(data.get("subgroup_metrics"), dict) or not data["subgroup_metrics"]:
+        return None
+    if not isinstance(data.get("calibration"), dict) or not data["calibration"]:
+        return None
+    if not isinstance(data.get("evaluation_date"), str) or not data["evaluation_date"].strip():
+        return None
+    if not isinstance(data.get("label_definition"), str) or not data["label_definition"].strip():
+        return None
     return data
 
 
@@ -239,7 +260,7 @@ class ClassifierRuntime:
             "kind": "classification",
             "status": self.status,
             "license": "Reviewed by deployer",
-            "accuracy_established": bool(report),
+            "accuracy_established": self.production_ready,
             "production_approved": self.production_ready,
             "limitations": [
                 "Model accuracy claims are valid only for the population and protocol in the validation report.",
@@ -262,9 +283,9 @@ class ClassifierRuntime:
         expected_version = self.adapter.model_version
         if raw.get("model_version") not in (None, expected_version):
             raise ValueError("Classifier returned a model version inconsistent with its loaded model.")
-        status = str(raw.get("status", self.status))
-        if status not in {"experimental", "available", "abstained"}:
-            status = self.status
+        # The adapter is never allowed to mark itself production-approved. Only the
+        # host runtime's license + matching validation gate can grant "available".
+        status = "available" if self.production_ready else "experimental"
         limitations = raw.get("limitations", [])
         note = "; ".join(str(item) for item in limitations) if limitations else (
             "This is an estimate of perceived vocal presentation and perceived age group, not gender identity or verified chronological age."
