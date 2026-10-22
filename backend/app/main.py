@@ -15,7 +15,6 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
-import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -63,6 +62,20 @@ class AnalysisResponse(BaseModel):
 
 class RequestBodyTooLarge(Exception):
     pass
+
+
+def _apply_rejection_headers(response: JSONResponse, request_id: str, path: str) -> None:
+    _apply_rejection_headers(response, request_id, path)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "microphone=(self), camera=(), geolocation=()"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+    response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+    if path.startswith("/api/v1/"):
+        response.headers["Cache-Control"] = "no-store"
+    if ENVIRONMENT == "production":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 
 
 class RequestGuardMiddleware:
