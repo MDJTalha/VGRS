@@ -65,7 +65,7 @@ class RequestBodyTooLarge(Exception):
 
 
 def _apply_rejection_headers(response: JSONResponse, request_id: str, path: str) -> None:
-    _apply_rejection_headers(response, request_id, path)
+    response.headers["X-Request-ID"] = request_id
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
