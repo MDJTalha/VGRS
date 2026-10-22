@@ -154,6 +154,9 @@ def test_validation_report_rejects_boolean_metrics_and_expired_evidence(tmp_path
 
 def _valid_age_calibration(model_version):
     return {
+        "schema_version": 1,
+        "method": "affine_age_calibration",
+        "performance_gate_passed": True,
         "approved_for_research": True,
         "model_version": model_version,
         "slope": 1.1,
