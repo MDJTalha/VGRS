@@ -298,7 +298,7 @@ class ClassifierRuntime:
         }
         return {
             "age_group": {
-                **common, "status": status, "label": age_group,
+                **common, "status": "abstained" if age_group is None else status, "label": age_group,
                 "note": note if age_group is not None else "The classifier abstained on age-group estimation.",
             },
             "vocal_presentation": {
