@@ -444,7 +444,7 @@ def models() -> dict[str, Any]:
         ],
         "limitations": ["Feature extraction only; not a demographic classifier."],
     }
-    return {"models": [acoustic_model, classifier_runtime.metadata()]}
+    return {"models": [acoustic_model, classifier_runtime.metadata()], "research_contributions_enabled": _research_contributions_enabled()}
 
 
 @app.post("/api/v1/research/contributions", status_code=201)
