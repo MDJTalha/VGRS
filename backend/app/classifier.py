@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Mapping, Protocol
 
@@ -155,7 +156,7 @@ def _read_validation_report() -> dict[str, Any] | None:
         return None
     for key in ("macro_f1", "balanced_accuracy", "abstention_coverage"):
         value = data.get(key)
-        if not isinstance(value, (int, float)) or not 0 <= float(value) <= 1:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= float(value) <= 1:
             return None
     if not isinstance(data.get("per_class_metrics"), dict) or not data["per_class_metrics"]:
         return None
@@ -164,6 +165,13 @@ def _read_validation_report() -> dict[str, Any] | None:
     if not isinstance(data.get("calibration"), dict) or not data["calibration"]:
         return None
     if not isinstance(data.get("evaluation_date"), str) or not data["evaluation_date"].strip():
+        return None
+    try:
+        evaluated_on = date.fromisoformat(data["evaluation_date"])
+    except ValueError:
+        return None
+    today = date.today()
+    if evaluated_on > today or evaluated_on < today - timedelta(days=365):
         return None
     if not isinstance(data.get("label_definition"), str) or not data["label_definition"].strip():
         return None
@@ -179,6 +187,10 @@ class ClassifierRuntime:
         self.validation_report: dict[str, Any] | None = None
 
     def configure(self) -> None:
+        # Startup/configuration may be retried in tests or worker lifecycle events.
+        self.adapter = None
+        self.validation_report = None
+        self.status = "not_configured"
         if self.backend in {"", "none", "disabled"}:
             if self.environment == "production":
                 raise ClassifierConfigurationError(
