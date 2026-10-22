@@ -1,3 +1,5 @@
+import asyncio
+import ipaddress
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,6 +10,7 @@ import soundfile as sf
 from fastapi.testclient import TestClient
 
 import app.audio_pipeline as audio_pipeline
+import app.main as main_module
 from app.main import app
 from app.audio_pipeline import analyze_audio, AudioValidationError
 
@@ -143,3 +146,70 @@ def test_readiness_and_security_headers_are_explicit():
     health = client.get("/api/v1/health")
     assert health.headers.get("x-request-id")
     assert health.headers["x-content-type-options"] == "nosniff"
+
+
+
+def _middleware_response_status(scope):
+    sent = []
+
+    async def downstream(inner_scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok", "more_body": False})
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    async def run():
+        middleware = main_module.RequestGuardMiddleware(downstream)
+        await middleware(scope, receive, send)
+
+    asyncio.run(run())
+    return next(message["status"] for message in sent if message["type"] == "http.response.start")
+
+
+def _production_scope(path, method, role=None, secret=None, peer="10.10.0.2"):
+    headers = []
+    if role:
+        headers.append((b"x-vgrs-authenticated-role", role.encode()))
+        headers.append((b"x-vgrs-authenticated-user", b"test-operator"))
+    if secret:
+        headers.append((b"x-vgrs-proxy-secret", secret.encode()))
+    return {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": method,
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "headers": headers,
+        "client": (peer, 12345),
+        "server": ("vgrs-api", 8000),
+        "state": {},
+    }
+
+
+def test_production_proxy_rejects_untrusted_peer_and_missing_secret(monkeypatch):
+    monkeypatch.setattr(main_module, "ENVIRONMENT", "production")
+    monkeypatch.setattr(main_module, "TRUSTED_PROXY_NETWORKS", [ipaddress.ip_network("10.10.0.2/32")])
+    monkeypatch.setattr(main_module, "PROXY_SHARED_SECRET", "x" * 40)
+    untrusted = _production_scope("/api/v1/models", "GET", role="viewer", secret="x" * 40, peer="10.10.0.3")
+    no_secret = _production_scope("/api/v1/models", "GET", role="viewer", peer="10.10.0.2")
+
+    assert _middleware_response_status(untrusted) == 403
+    assert _middleware_response_status(no_secret) == 401
+
+
+def test_production_viewer_cannot_analyze_but_analyst_can(monkeypatch):
+    monkeypatch.setattr(main_module, "ENVIRONMENT", "production")
+    monkeypatch.setattr(main_module, "TRUSTED_PROXY_NETWORKS", [ipaddress.ip_network("10.10.0.2/32")])
+    monkeypatch.setattr(main_module, "PROXY_SHARED_SECRET", "x" * 40)
+    viewer = _production_scope("/api/v1/analyze", "POST", role="viewer", secret="x" * 40)
+    analyst = _production_scope("/api/v1/analyze", "POST", role="analyst", secret="x" * 40)
+
+    assert _middleware_response_status(viewer) == 403
+    assert _middleware_response_status(analyst) == 200
