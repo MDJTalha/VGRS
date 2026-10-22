@@ -113,7 +113,7 @@ class RequestGuardMiddleware:
                     status_code=403,
                     content={"detail": {"code": "untrusted_proxy", "message": "Requests must arrive through the configured trusted gateway."}},
                 )
-                response.headers["X-Request-ID"] = request_id
+                _apply_rejection_headers(response, request_id, path)
                 await response(scope, receive, send)
                 return
             received_secret = headers.get(b"x-vgrs-proxy-secret", b"")
@@ -123,7 +123,7 @@ class RequestGuardMiddleware:
                     status_code=401,
                     content={"detail": {"code": "proxy_auth_required", "message": "The trusted gateway did not authenticate this request."}},
                 )
-                response.headers["X-Request-ID"] = request_id
+                _apply_rejection_headers(response, request_id, path)
                 await response(scope, receive, send)
                 return
             role = headers.get(b"x-vgrs-authenticated-role", b"").decode("utf-8", errors="ignore").strip().lower()
@@ -135,7 +135,7 @@ class RequestGuardMiddleware:
                     status_code=401,
                     content={"detail": {"code": "identity_required", "message": "The gateway must provide an authenticated user and approved role."}},
                 )
-                response.headers["X-Request-ID"] = request_id
+                _apply_rejection_headers(response, request_id, path)
                 await response(scope, receive, send)
                 return
             if scope.get("method") == "POST" and path in {"/api/v1/analyze", "/api/v1/analyze/batch"} and role not in {"admin", "analyst"}:
@@ -143,7 +143,7 @@ class RequestGuardMiddleware:
                     status_code=403,
                     content={"detail": {"code": "role_forbidden", "message": "Your authenticated role cannot submit audio for analysis."}},
                 )
-                response.headers["X-Request-ID"] = request_id
+                _apply_rejection_headers(response, request_id, path)
                 await response(scope, receive, send)
                 return
 
@@ -155,12 +155,12 @@ class RequestGuardMiddleware:
                         status_code=413,
                         content={"detail": {"code": "request_too_large", "message": "Request exceeds the configured request-body limit."}},
                     )
-                    response.headers["X-Request-ID"] = request_id
+                    _apply_rejection_headers(response, request_id, path)
                     await response(scope, receive, send)
                     return
             except ValueError:
                 response = JSONResponse(status_code=400, content={"detail": {"code": "invalid_content_length", "message": "Invalid Content-Length header."}})
-                response.headers["X-Request-ID"] = request_id
+                _apply_rejection_headers(response, request_id, path)
                 await response(scope, receive, send)
                 return
 
@@ -211,7 +211,7 @@ class RequestGuardMiddleware:
                     status_code=413,
                     content={"detail": {"code": "request_too_large", "message": "Request exceeds the configured request-body limit."}},
                 )
-                response.headers["X-Request-ID"] = request_id
+                _apply_rejection_headers(response, request_id, path)
                 await response(scope, receive, send)
         except Exception:
             if not response_started:
@@ -219,7 +219,7 @@ class RequestGuardMiddleware:
                     status_code=500,
                     content={"detail": {"code": "internal_error", "message": "The request failed unexpectedly. Provide the request ID to the operator."}},
                 )
-                response.headers["X-Request-ID"] = request_id
+                _apply_rejection_headers(response, request_id, path)
                 await response(scope, receive, send)
             logger.exception("Unhandled API exception request_id=%s path=%s", request_id, path)
         finally:
