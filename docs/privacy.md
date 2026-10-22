@@ -36,3 +36,14 @@ The optional open audEERING classification weights are non-commercial and not ap
 - Add secret/dependency scanning, incident response, operational alerts and a deployment/rollback owner.
 
 No audio upload should be reused for model training without explicit, informed opt-in and a reviewed governance basis. The current prototype is not security-certified and is not production-certified.
+
+
+## Optional research contribution workflow
+
+Research retention is separate from ordinary analysis and is disabled by default. It is forcibly disabled in `VGRS_ENV=production`. In local development, an operator may explicitly enable `VGRS_ENABLE_RESEARCH_CONTRIBUTIONS=true`. After analysis, a user must separately consent and submit an adult speaker's self-reported age (18–110) before a copy of the recording and a minimal metadata record is written to `data/research-contributions/<random-id>/`.
+
+The recording is stored on the configured **API host**, not necessarily the browser user's computer. The workflow does not encrypt audio at application level; enable it only on a host and disk the operator controls. Metadata does not store the original filename or name/email. An optional pseudonymous participant code groups multiple recordings from one speaker; contributors must never supply a direct identifier. Each record can be deleted via the UI or the local research DELETE endpoint. Research data and generated reports are ignored by Git and must not be committed or uploaded to a shared repository.
+
+Stored contributions are used only for offline evaluation. The upload endpoint returns `model_updated: false`; model fitting and activation are separate manual steps. Self-reported age is an imperfect label and does not by itself establish a verified age. This first workflow does not accept minors' recordings.
+
+The offline evaluation and calibration tools write per-record predictions/errors and held-out reports into an ignored local folder. Treat those reports as research data too. A calibration can only be activated after a speaker-separated evaluation, sufficient sample counts, passing error gates, and explicit manual research approval. This is not production approval, nor does it replace a separate commercial license or independent validation.
