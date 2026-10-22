@@ -366,6 +366,9 @@ def readiness() -> dict[str, Any]:
             and os.getenv("VGRS_PROXY_AUTH_ACK", "").strip().lower() == "true"
             and os.getenv("VGRS_PROXY_NETWORK_ISOLATED", "").strip().lower() == "true"
             and os.getenv("VGRS_PROXY_RATE_LIMIT_ACK", "").strip().lower() == "true"
+            and bool(TRUSTED_PROXY_NETWORKS)
+            and all(network.prefixlen > 0 for network in TRUSTED_PROXY_NETWORKS)
+            and len(PROXY_SHARED_SECRET) >= 32
         ),
         "licensed_validated_classifier": classifier_runtime.production_ready,
     }
